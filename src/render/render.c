@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <memory.h>
 #include "commands.h"
+#include "sprite_renderer.h"
 RenderContext renderContext = {0};
 
 
@@ -16,6 +17,11 @@ int renderInit(RenderInitParams* params)
         return -1;
     }
     renderContext.frameData.cmd = createCommandBuffer(1024);
+
+    if (spriteRendererCreate()) {
+        renderFinish();
+        return -1;
+    }
     return 0;
 }
 
@@ -68,6 +74,8 @@ void renderFrame(RenderState* state) {
         desc.colorAttachments = &renderPassColorAttachment;
         frameData->renderPass = wgpuCommandEncoderBeginRenderPass(frameData->encoder, &desc);
     }
+
+    spriteRendererPass();
 
     finishFrame();
 }
