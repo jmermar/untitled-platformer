@@ -1,81 +1,83 @@
 #include "render.h"
-#include "wgpu.h"
-#include <stdlib.h>
-#include <memory.h>
 #include "commands.h"
 #include "sprite_renderer.h"
+#include "wgpu.h"
+#include <memory.h>
+#include <stdlib.h>
 RenderContext renderContext = {0};
 
+int renderInit(RenderInitParams *params) {
+  renderContext.width = params->width;
+  renderContext.height = params->height;
+  renderContext.window = params->window;
+  if (initWGPU()) {
+    return -1;
+  }
+  renderContext.frameData.cmd = createCommandBuffer(1024);
 
-
-int renderInit(RenderInitParams* params)
-{
-    renderContext.width = params->width;
-    renderContext.height = params->height;
-    renderContext.window = params->window;
-    if (initWGPU()) {
-        return -1;
-    }
-    renderContext.frameData.cmd = createCommandBuffer(1024);
-
-    if (spriteRendererCreate()) {
-        renderFinish();
-        return -1;
-    }
-    return 0;
+  if (spriteRendererCreate()) {
+    renderFinish();
+    return -1;
+  }
+  return 0;
 }
 
 void renderFinish() {
-    commandBufferClear(&renderContext.frameData.cmd);
-    finishWGPU();
+  commandBufferClear(&renderContext.frameData.cmd);
+  finishWGPU();
 }
 
-WGPUCommandEncoder wgpu_createCommandEncoder(const char* name) {
-    WGPUCommandEncoderDescriptor desc = {.label = WGPU_STR(name)};
+WGPUCommandEncoder wgpu_createCommandEncoder(const char *name) {
+  WGPUCommandEncoderDescriptor desc = {.label = WGPU_STR(name)};
 
-    return wgpuDeviceCreateCommandEncoder(renderContext.device, &desc);
+  return wgpuDeviceCreateCommandEncoder(renderContext.device, &desc);
 }
 
 void finishFrame() {
 
-    FrameData* frameData = &renderContext.frameData;
-    wgpuRenderPassEncoderEnd(frameData->renderPass);
-    wgpuRenderPassEncoderRelease(frameData->renderPass);
+  FrameData *frameData = &renderContext.frameData;
+  wgpuRenderPassEncoderEnd(frameData->renderPass);
+  wgpuRenderPassEncoderRelease(frameData->renderPass);
 
-    {
-        WGPUCommandBufferDescriptor cmdBufferDescriptor = {};
-        cmdBufferDescriptor.nextInChain = 0;
-        cmdBufferDescriptor.label = WGPU_STR("Command buffer");
-        commandBufferAppend(&frameData->cmd, wgpuCommandEncoderFinish(frameData->encoder, &cmdBufferDescriptor));
-    }
-    wgpuCommandEncoderRelease(frameData->encoder);
+  {
+    WGPUCommandBufferDescriptor cmdBufferDescriptor = {};
+    cmdBufferDescriptor.nextInChain = 0;
+    cmdBufferDescriptor.label = WGPU_STR("Command buffer");
+    commandBufferAppend(
+        &frameData->cmd,
+        wgpuCommandEncoderFinish(frameData->encoder, &cmdBufferDescriptor));
+  }
+  wgpuCommandEncoderRelease(frameData->encoder);
 
-    wgpuQueueSubmit(renderContext.queue, frameData->cmd.size, frameData->cmd.commands);
-    commandBufferClear(&frameData->cmd);
+  wgpuQueueSubmit(renderContext.queue, frameData->cmd.size,
+                  frameData->cmd.commands);
+  commandBufferClear(&frameData->cmd);
 
-    wgpuSurfacePresent(renderContext.surface);
+  wgpuSurfacePresent(renderContext.surface);
 
-    wgpuTextureViewRelease(frameData->screenSurface.view);
+  wgpuTextureViewRelease(frameData->screenSurface.view);
 }
 
-void renderFrame(RenderState* state) {
-    FrameData* frameData = &renderContext.frameData;
-    frameData->screenSurface = getNextSurfaceViewData();
-    frameData->encoder = wgpu_createCommandEncoder("My encoder");
-    {
-        WGPURenderPassColorAttachment renderPassColorAttachment = {0};
-        renderPassColorAttachment.view = frameData->screenSurface.view;
-        renderPassColorAttachment.loadOp = WGPULoadOp_Clear;
-        renderPassColorAttachment.storeOp = WGPUStoreOp_Store;
-        renderPassColorAttachment.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
-        renderPassColorAttachment.clearValue = *((WGPUColor*)((void*)state->clearColor.raw));
-        WGPURenderPassDescriptor desc = {0};
-        desc.colorAttachmentCount = 1;
-        desc.colorAttachments = &renderPassColorAttachment;
-        frameData->renderPass = wgpuCommandEncoderBeginRenderPass(frameData->encoder, &desc);
-    }
+void renderFrame(RenderState *state) {
+  FrameData *frameData = &renderContext.frameData;
+  frameData->screenSurface = getNextSurfaceViewData();
+  frameData->encoder = wgpu_createCommandEncoder("My encoder");
+  {
+    WGPURenderPassColorAttachment renderPassColorAttachment = {0};
+    renderPassColorAttachment.view = frameData->screenSurface.view;
+    renderPassColorAttachment.loadOp = WGPULoadOp_Clear;
+    renderPassColorAttachment.storeOp = WGPUStoreOp_Store;
+    renderPassColorAttachment.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
+    renderPassColorAttachment.clearValue =
+        *((WGPUColor *)((void *)state->clearColor.raw));
+    WGPURenderPassDescriptor desc = {0};
+    desc.colorAttachmentCount = 1;
+    desc.colorAttachments = &renderPassColorAttachment;
+    frameData->renderPass =
+        wgpuCommandEncoderBeginRenderPass(frameData->encoder, &desc);
+  }
 
-    spriteRendererPass();
+  spriteRendererPass();
 
-    finishFrame();
+  finishFrame();
 }

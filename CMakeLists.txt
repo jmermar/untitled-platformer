@@ -14,4 +14,7 @@ add_executable(app
     ${all_sources}
 )
 
+set_target_properties(app PROPERTIES COMPILE_FLAGS "${CMAKE_CXX_FLAGS} -Werror")
+
+
 target_link_libraries(app PRIVATE webgpu_dawn webgpu_glfw glfw)

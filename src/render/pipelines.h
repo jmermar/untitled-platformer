@@ -1,4 +1,6 @@
 #pragma once
 #include "webgpu/webgpu.h"
 
-WGPUShaderModule createShaderModule(const char* filepath);
+WGPUShaderModule createShaderModule(const char *filepath);
+
+WGPUVertexBufferLayout getSpriteBufferLayout(WGPUVertexAttribute *attr);
