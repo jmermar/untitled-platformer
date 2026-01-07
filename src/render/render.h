@@ -1,4 +1,5 @@
 #pragma once
+#include "../types.h"
 #include <GLFW/glfw3.h>
 #include <stdint.h>
 typedef struct {
@@ -20,5 +21,7 @@ typedef struct {
 
 int renderInit(RenderInitParams *params);
 void renderFinish();
+
+TextureRef loadTexture(const char *path);
 
 void renderFrame(RenderState *state);

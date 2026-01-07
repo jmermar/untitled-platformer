@@ -1,5 +1,4 @@
 #include "render/render.h"
-#include "render/sprite_renderer.h"
 #include <GLFW/glfw3.h>
 #include <stdio.h>
 
@@ -45,20 +44,13 @@ int main() {
     return -1;
   }
 
+  TextureRef tileset = loadTexture("res/textures/tileset.png");
+
   RenderState state;
   state.clearColor = (Color){.c = {.r = 1, .g = 0, .b = 0, .a = 1}};
 
   while (!glfwWindowShouldClose(window)) {
     glfwPollEvents();
-
-    Sprite spr;
-    spr.src = (Rect){0};
-    spr.dst = (Rect){.x = 0, .y = 0, .w = width, .h = 32};
-    spr.depth = 1;
-    drawSprite(&spr);
-    spr.dst = (Rect){.x = 100, .y = 32, .h = 128, .w = 32};
-
-    drawSprite(&spr);
 
     renderFrame(&state);
   }

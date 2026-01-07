@@ -1,3 +1,10 @@
 #pragma once
+#include "types.h"
 
-char* readTextFile(const char* path);
+typedef struct {
+  uint32_t w, h, layers;
+  char *pixels;
+} Bitmap;
+
+char *readTextFile(const char *path);
+Bitmap *readImage(const char *image);

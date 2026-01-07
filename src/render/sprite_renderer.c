@@ -14,15 +14,53 @@ typedef struct {
   SpriteVertex data[6];
 } SpriteData;
 
-struct {
+typedef struct {
   WGPURenderPipeline pipeline;
+  WGPUPipelineLayout pipelineLayout;
+  WGPUBindGroupLayout bindgroupLayout;
+
   Buffer spriteBuffer;
   size_t maxSprites;
   size_t numSprites;
   SpriteData *cpuSpriteBuffer;
 
+  uint32_t texture;
   float texW, texH;
-} context = {0};
+
+  WGPUBindGroup *groups;
+  size_t numGroups;
+} SpriteRendererContext;
+SpriteRendererContext context = {0};
+
+int createPipelineLayout() {
+  WGPUBindGroupLayoutEntry entry = {0};
+  entry.binding = 0;
+  entry.visibility = WGPUShaderStage_Fragment;
+  entry.texture.sampleType = WGPUTextureSampleType_UnfilterableFloat;
+  entry.texture.viewDimension = WGPUTextureViewDimension_2DArray;
+
+  WGPUBindGroupLayoutDescriptor desc = {0};
+  desc.entries = &entry;
+  desc.entryCount = 1;
+  desc.label = WGPU_STR("SpriteRenderer Layout Group");
+
+  if ((context.bindgroupLayout =
+           wgpuDeviceCreateBindGroupLayout(renderContext.device, &desc)) == 0) {
+    return -1;
+  }
+
+  WGPUPipelineLayoutDescriptor layoutDesc = {0};
+  layoutDesc.bindGroupLayoutCount = 1;
+  layoutDesc.bindGroupLayouts = &context.bindgroupLayout;
+  layoutDesc.label = WGPU_STR("SpriteRenderer Pipeline Layout");
+
+  if ((context.pipelineLayout = wgpuDeviceCreatePipelineLayout(
+           renderContext.device, &layoutDesc)) == 0) {
+    return -1;
+  }
+
+  return 0;
+}
 
 int createPipeline() {
   WGPURenderPipelineDescriptor desc = {0};
@@ -66,6 +104,7 @@ int createPipeline() {
   desc.multisample.count = 1;
   desc.multisample.mask = ~0u;
   desc.multisample.alphaToCoverageEnabled = 0;
+  desc.layout = context.pipelineLayout;
 
   context.pipeline =
       wgpuDeviceCreateRenderPipeline(renderContext.device, &desc);
@@ -78,7 +117,13 @@ int createPipeline() {
 }
 
 int spriteRendererCreate() {
+  if (createPipelineLayout()) {
+    spriteRendererFinish();
+    return -1;
+  }
+
   if (createPipeline()) {
+    spriteRendererFinish();
     return -1;
   }
   context.spriteBuffer =
@@ -98,14 +143,50 @@ int spriteRendererCreate() {
   return 0;
 }
 
+void deleteBindGroups() {
+  if (context.groups) {
+    for (int i = 0; i < context.numGroups; i++) {
+      wgpuBindGroupRelease(context.groups[i]);
+    }
+    context.groups = 0;
+    context.numGroups = 0;
+  }
+}
+
 void spriteRendererFinish() {
+  deleteBindGroups();
   if (context.spriteBuffer.buffer) {
     bufferDestroy(&context.spriteBuffer);
-    context.spriteBuffer = (Buffer){0};
   }
   if (context.pipeline) {
     wgpuRenderPipelineRelease(context.pipeline);
-    context.pipeline = 0;
+  }
+
+  if (context.bindgroupLayout) {
+    wgpuBindGroupLayoutRelease(context.bindgroupLayout);
+  }
+  if (context.pipelineLayout) {
+    wgpuPipelineLayoutRelease(context.pipelineLayout);
+  }
+
+  context = (SpriteRendererContext){0};
+}
+
+void spriteRendererUpdateTextures() {
+  deleteBindGroups();
+  context.numGroups = renderContext.numTextures;
+  context.groups = malloc(sizeof(WGPUBindGroup) * context.numGroups);
+  WGPUBindGroupDescriptor desc = {0};
+  desc.layout = context.bindgroupLayout;
+  WGPUBindGroupEntry entry = {0};
+  entry.binding = 0;
+
+  desc.entryCount = 1;
+  desc.entries = &entry;
+
+  for (int i = 0; i < context.numGroups; i++) {
+    entry.textureView = renderContext.textures[i].view;
+    context.groups[i] = wgpuDeviceCreateBindGroup(renderContext.device, &desc);
   }
 }
 
@@ -132,7 +213,7 @@ float clipY(int32_t y) {
   return (1 - ((float)y / renderContext.height)) * 2 - 1;
 }
 
-void drawSprite(Sprite *spr) {
+void spriteRendererDraw(Sprite *spr) {
   if (context.numSprites == context.maxSprites) {
     resizeSpriteBuffer();
   }
@@ -159,17 +240,22 @@ void drawSprite(Sprite *spr) {
   context.cpuSpriteBuffer[context.numSprites++] = data;
 }
 
-void spriteRendererPass() {
+void spriteRendererInitPass(uint32_t textureID) {
+  context.texture = textureID;
+  context.texH = renderContext.textures[textureID].size.width;
+  context.texH = renderContext.textures[textureID].size.height;
+  context.numSprites = 0;
+}
+
+void spriteRendererEndPass(WGPURenderPassEncoder encoder) {
   bufferWrite(&context.spriteBuffer, sizeof(SpriteData) * context.numSprites,
               context.cpuSpriteBuffer);
+  wgpuRenderPassEncoderSetBindGroup(encoder, 0, context.groups[context.texture],
+                                    0, 0);
 
-  wgpuRenderPassEncoderSetPipeline(renderContext.frameData.renderPass,
-                                   context.pipeline);
-  wgpuRenderPassEncoderSetVertexBuffer(renderContext.frameData.renderPass, 0,
-                                       context.spriteBuffer.buffer, 0,
+  wgpuRenderPassEncoderSetPipeline(encoder, context.pipeline);
+  wgpuRenderPassEncoderSetVertexBuffer(encoder, 0, context.spriteBuffer.buffer,
+                                       0,
                                        sizeof(SpriteData) * context.numSprites);
-  wgpuRenderPassEncoderDraw(renderContext.frameData.renderPass,
-                            context.numSprites * 6, 1, 0, 0);
-
-  context.numSprites = 0;
+  wgpuRenderPassEncoderDraw(encoder, context.numSprites * 6, 1, 0, 0);
 }

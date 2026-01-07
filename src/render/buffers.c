@@ -12,8 +12,10 @@ Buffer bufferCreate(const char *label, size_t size, WGPUBufferUsage usage) {
                   .size = size};
 }
 void bufferDestroy(Buffer *buffer) {
-  assert(buffer && buffer->buffer);
-  wgpuBufferRelease(buffer->buffer);
+  if (buffer && buffer->buffer) {
+    wgpuBufferRelease(buffer->buffer);
+    *buffer = (Buffer){0};
+  }
 }
 
 void bufferWrite(Buffer *buffer, size_t size, void *data) {

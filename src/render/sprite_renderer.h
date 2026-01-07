@@ -5,11 +5,14 @@
 typedef struct {
   Rect src, dst;
   float depth;
+  uint32_t idx;
 } Sprite;
 
 int spriteRendererCreate();
 void spriteRendererFinish();
 
-void drawSprite(Sprite *spr);
+void spriteRendererUpdateTextures();
 
-void spriteRendererPass();
+void spriteRendererInitPass(uint32_t textureID);
+void spriteRendererDraw(Sprite *spr);
+void spriteRendererEndPass(WGPURenderPassEncoder renderPass);
