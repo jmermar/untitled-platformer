@@ -11,9 +11,10 @@ TextureView textureViewCreate(const char *name, Size size, uint32_t layers,
   desc.format = format;
   desc.label = WGPU_STR(name);
   desc.mipLevelCount = 4;
-  desc.size = (WGPUExtent3D){.width = size.w, .height = size.h, layers};
-  desc.viewFormatCount = 1;
-  desc.viewFormats = &format;
+  desc.size = (WGPUExtent3D){
+      .width = size.w, .height = size.h, .depthOrArrayLayers = layers};
+  desc.viewFormatCount = 0;
+  desc.viewFormats = 0;
   desc.dimension = WGPUTextureDimension_2D;
   desc.usage = usage;
   desc.sampleCount = 1;
@@ -24,10 +25,9 @@ TextureView textureViewCreate(const char *name, Size size, uint32_t layers,
   }
 
   WGPUTextureViewDescriptor vdesc = {0};
-  vdesc.arrayLayerCount = 1;
+  vdesc.arrayLayerCount = layers;
   vdesc.baseArrayLayer = 0;
   vdesc.baseMipLevel = 0;
-  vdesc.arrayLayerCount = layers;
   vdesc.mipLevelCount = 4;
   vdesc.format = format;
   vdesc.label = WGPU_STR(name);
@@ -64,6 +64,7 @@ void textureViewDestroy(TextureView *tex) {
 size_t getTexturePixelSize(TextureView *t) {
   switch (t->format) {
   case WGPUTextureFormat_RGBA8Uint:
+  case WGPUTextureFormat_RGBA8Unorm:
     return 4;
   case WGPUTextureFormat_RGBA32Float:
     return 16;
@@ -83,8 +84,9 @@ void textureViewWrite(TextureView *tex, void *data) {
   info.texture = tex->texture;
   WGPUTexelCopyBufferLayout layout = {0};
   layout.bytesPerRow = bytes * tex->size.width;
-  layout.rowsPerImage = layout.bytesPerRow * tex->size.height;
+  layout.rowsPerImage = tex->size.height;
   wgpuQueueWriteTexture(renderContext.queue, &info, data,
-                        layout.bytesPerRow * tex->size.height, &layout,
-                        &tex->size);
+                        layout.bytesPerRow * tex->size.height *
+                            tex->size.depthOrArrayLayers,
+                        &layout, &tex->size);
 }

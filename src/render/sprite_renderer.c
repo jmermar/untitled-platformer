@@ -8,6 +8,7 @@
 typedef struct {
   float pos[3];
   float uv[2];
+  uint32_t id;
 } SpriteVertex;
 
 typedef struct {
@@ -18,6 +19,7 @@ typedef struct {
   WGPURenderPipeline pipeline;
   WGPUPipelineLayout pipelineLayout;
   WGPUBindGroupLayout bindgroupLayout;
+  WGPUSampler sampler;
 
   Buffer spriteBuffer;
   size_t maxSprites;
@@ -33,15 +35,19 @@ typedef struct {
 SpriteRendererContext context = {0};
 
 int createPipelineLayout() {
-  WGPUBindGroupLayoutEntry entry = {0};
-  entry.binding = 0;
-  entry.visibility = WGPUShaderStage_Fragment;
-  entry.texture.sampleType = WGPUTextureSampleType_UnfilterableFloat;
-  entry.texture.viewDimension = WGPUTextureViewDimension_2DArray;
+  WGPUBindGroupLayoutEntry entry[3] = {0};
+  entry[0].binding = 0;
+  entry[0].visibility = WGPUShaderStage_Fragment;
+  entry[0].texture.sampleType = WGPUTextureSampleType_Float;
+  entry[0].texture.viewDimension = WGPUTextureViewDimension_2DArray;
+
+  entry[1].binding = 1;
+  entry[1].visibility = WGPUShaderStage_Fragment;
+  entry[1].sampler.type = WGPUSamplerBindingType_Filtering;
 
   WGPUBindGroupLayoutDescriptor desc = {0};
-  desc.entries = &entry;
-  desc.entryCount = 1;
+  desc.entries = entry;
+  desc.entryCount = 2;
   desc.label = WGPU_STR("SpriteRenderer Layout Group");
 
   if ((context.bindgroupLayout =
@@ -62,6 +68,25 @@ int createPipelineLayout() {
   return 0;
 }
 
+int createSampler() {
+  WGPUSamplerDescriptor desc = {0};
+  desc.addressModeU = WGPUAddressMode_ClampToEdge;
+  desc.addressModeV = WGPUAddressMode_ClampToEdge;
+  desc.addressModeW = WGPUAddressMode_ClampToEdge;
+
+  desc.magFilter = WGPUFilterMode_Nearest;
+  desc.minFilter = WGPUFilterMode_Nearest;
+  desc.mipmapFilter = WGPUMipmapFilterMode_Linear;
+  desc.lodMaxClamp = 1.f;
+  desc.maxAnisotropy = 1;
+  desc.compare = WGPUCompareFunction_Undefined;
+
+  return (context.sampler =
+              wgpuDeviceCreateSampler(renderContext.device, &desc))
+             ? 0
+             : -1;
+}
+
 int createPipeline() {
   WGPURenderPipelineDescriptor desc = {0};
 
@@ -70,7 +95,7 @@ int createPipeline() {
     return -1;
   }
 
-  WGPUVertexAttribute attr[2];
+  WGPUVertexAttribute attr[3];
 
   WGPUVertexBufferLayout bufferLayout = getSpriteBufferLayout(attr);
 
@@ -122,6 +147,11 @@ int spriteRendererCreate() {
     return -1;
   }
 
+  if (createSampler()) {
+    spriteRendererFinish();
+    return -1;
+  }
+
   if (createPipeline()) {
     spriteRendererFinish();
     return -1;
@@ -140,6 +170,7 @@ int spriteRendererCreate() {
   if (context.cpuSpriteBuffer->data == 0) {
     return -1;
   }
+
   return 0;
 }
 
@@ -178,14 +209,16 @@ void spriteRendererUpdateTextures() {
   context.groups = malloc(sizeof(WGPUBindGroup) * context.numGroups);
   WGPUBindGroupDescriptor desc = {0};
   desc.layout = context.bindgroupLayout;
-  WGPUBindGroupEntry entry = {0};
-  entry.binding = 0;
+  WGPUBindGroupEntry entries[2] = {0};
+  entries[0].binding = 0;
 
-  desc.entryCount = 1;
-  desc.entries = &entry;
+  entries[1].binding = 1;
+  entries[1].sampler = context.sampler;
+  desc.entryCount = 2;
+  desc.entries = entries;
 
   for (int i = 0; i < context.numGroups; i++) {
-    entry.textureView = renderContext.textures[i].view;
+    entries[0].textureView = renderContext.textures[i].view;
     context.groups[i] = wgpuDeviceCreateBindGroup(renderContext.device, &desc);
   }
 }
@@ -227,22 +260,23 @@ void spriteRendererDraw(Sprite *spr) {
         uright = (spr->src.x + spr->src.w) / context.texW;
   float uup = spr->src.y / context.texH,
         udown = (spr->src.y + spr->src.h) / context.texH;
-  SpriteData data = {.data = {
-                         {.pos = {left, up, depth}, .uv = {uleft, uup}},
-                         {.pos = {right, up, depth}, .uv = {uright, uup}},
-                         {.pos = {right, down, depth}, .uv = {uright, udown}},
-                         {.pos = {left, up, depth}, .uv = {uleft, uup}},
-                         {.pos = {right, down, depth}, .uv = {uright, udown}},
-                         {.pos = {left, down, depth}, .uv = {uleft, udown}},
+  SpriteData data = {
+      .data = {
+          {.pos = {left, up, depth}, .uv = {uleft, uup}, .id = spr->idx},
+          {.pos = {right, up, depth}, .uv = {uright, uup}, .id = spr->idx},
+          {.pos = {right, down, depth}, .uv = {uright, udown}, .id = spr->idx},
+          {.pos = {left, up, depth}, .uv = {uleft, uup}, .id = spr->idx},
+          {.pos = {right, down, depth}, .uv = {uright, udown}, .id = spr->idx},
+          {.pos = {left, down, depth}, .uv = {uleft, udown}, .id = spr->idx},
 
-                     }};
+      }};
 
   context.cpuSpriteBuffer[context.numSprites++] = data;
 }
 
 void spriteRendererInitPass(uint32_t textureID) {
   context.texture = textureID;
-  context.texH = renderContext.textures[textureID].size.width;
+  context.texW = renderContext.textures[textureID].size.width;
   context.texH = renderContext.textures[textureID].size.height;
   context.numSprites = 0;
 }

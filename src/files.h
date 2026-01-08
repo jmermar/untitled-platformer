@@ -8,3 +8,4 @@ typedef struct {
 
 char *readTextFile(const char *path);
 Bitmap *readImage(const char *image);
+Bitmap *readImageArray(const char *image, uint32_t columns, uint32_t rows);

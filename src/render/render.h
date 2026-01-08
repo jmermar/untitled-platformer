@@ -16,12 +16,22 @@ typedef union {
 } Color;
 
 typedef struct {
+  Rect src, dst;
+  uint32_t layer;
+  float depth;
+  TextureRef texture;
+} RenderSprite;
+
+typedef struct {
   Color clearColor;
+  RenderSprite *sprites;
+  size_t numsprites;
 } RenderState;
 
 int renderInit(RenderInitParams *params);
 void renderFinish();
 
 TextureRef loadTexture(const char *path);
+TextureRef loadTextureArray(const char *path, uint32_t nCols, uint32_t nRows);
 
 void renderFrame(RenderState *state);

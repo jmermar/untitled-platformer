@@ -6,11 +6,24 @@ GLFWwindow *window = 0;
 const uint32_t width = 512;
 const uint32_t height = 512;
 
+RenderSprite sprites[1024 * 1024];
+size_t numSprites = 0;
+TextureRef tileset;
+
 void finishWindow() {
   if (window) {
     glfwDestroyWindow(window);
   }
   glfwTerminate();
+}
+
+void drawTile(uint32_t tileID, Point pos) {
+  sprites[numSprites++] = (RenderSprite){
+      .dst = {.x = pos.x * 16, .y = pos.y * 16, .w = 16, .h = 16},
+      .src = {.x = 0, .y = 0, .w = 16, .h = 16},
+      .depth = 1,
+      .layer = tileID,
+      .texture = tileset};
 }
 
 int initWindow() {
@@ -44,15 +57,35 @@ int main() {
     return -1;
   }
 
-  TextureRef tileset = loadTexture("res/textures/tileset.png");
+  tileset = loadTextureArray("res/textures/tileset.png", 4, 4);
 
-  RenderState state;
-  state.clearColor = (Color){.c = {.r = 1, .g = 0, .b = 0, .a = 1}};
+  RenderState state = {0};
+  state.sprites = sprites;
+  state.clearColor = (Color){.c = {.r = 0, .g = 0, .b = 0, .a = 1}};
 
   while (!glfwWindowShouldClose(window)) {
     glfwPollEvents();
 
+    for (int y = 0; y < (height / 16) + 1; y++) {
+      for (int x = 0; x < (width / 16) + 1; x++) {
+        uint32_t id = 0;
+        if (y < 16)
+          continue;
+        if (y < 17)
+          id = 0;
+        else if (y < 22)
+          id = 1;
+        else
+          id = 2;
+        drawTile(id, (Point){.x = x, .y = y});
+      }
+    }
+
+    state.numsprites = numSprites;
+
     renderFrame(&state);
+
+    numSprites = 0;
   }
 
   renderFinish();

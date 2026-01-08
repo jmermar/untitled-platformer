@@ -39,8 +39,12 @@ WGPUVertexBufferLayout getSpriteBufferLayout(WGPUVertexAttribute *attr) {
   attr[1].offset = 3 * sizeof(float);
   attr[1].shaderLocation = 1;
 
-  layout.arrayStride = 5 * sizeof(float);
-  layout.attributeCount = 2;
+  attr[2].format = WGPUVertexFormat_Uint32;
+  attr[2].offset = 5 * sizeof(uint32_t);
+  attr[2].shaderLocation = 2;
+
+  layout.arrayStride = 5 * sizeof(float) + sizeof(uint32_t);
+  layout.attributeCount = 3;
   layout.attributes = attr;
   layout.stepMode = WGPUVertexStepMode_Vertex;
 

@@ -5,6 +5,7 @@
 #include "wgpu.h"
 #include <memory.h>
 #include <stdlib.h>
+
 RenderContext renderContext = {0};
 
 int renderInit(RenderInitParams *params) {
@@ -50,18 +51,22 @@ void resizeTextures() {
 }
 
 TextureRef loadTexture(const char *path) {
+  return loadTextureArray(path, 1, 1);
+}
+
+TextureRef loadTextureArray(const char *path, uint32_t nCols, uint32_t nRows) {
   if (renderContext.numTextures == renderContext.maxTextures) {
     resizeTextures();
   }
 
-  Bitmap *image = readImage(path);
+  Bitmap *image = readImageArray(path, nCols, nRows);
   if (!image) {
     return 0;
   }
 
   renderContext.textures[renderContext.numTextures] = textureViewCreate(
       "Loaded texture", (Size){.w = image->w, .h = image->h}, image->layers,
-      WGPUTextureFormat_RGBA32Float,
+      WGPUTextureFormat_RGBA8Unorm,
       WGPUTextureUsage_CopyDst | WGPUTextureUsage_TextureBinding);
 
   textureViewWrite(renderContext.textures + renderContext.numTextures,
@@ -75,6 +80,29 @@ WGPUCommandEncoder wgpu_createCommandEncoder(const char *name) {
   WGPUCommandEncoderDescriptor desc = {.label = WGPU_STR(name)};
 
   return wgpuDeviceCreateCommandEncoder(renderContext.device, &desc);
+}
+
+void renderScene(WGPURenderPassEncoder encoder, RenderState *state) {
+  TextureRef prevTexture = 0;
+  for (int i = 0; i < state->numsprites; i++) {
+    RenderSprite *spr = state->sprites + i;
+    if (spr->texture != prevTexture) {
+      if (prevTexture) {
+        spriteRendererEndPass(encoder);
+      }
+      spriteRendererInitPass(spr->texture - 1);
+      prevTexture = spr->texture;
+    }
+    Sprite s = {.depth = spr->depth,
+                .dst = spr->dst,
+                .src = spr->src,
+                .idx = spr->layer,
+                .depth = spr->depth};
+    spriteRendererDraw(&s);
+  }
+  if (prevTexture) {
+    spriteRendererEndPass(encoder);
+  }
 }
 
 void renderFrame(RenderState *state) {
@@ -106,13 +134,7 @@ void renderFrame(RenderState *state) {
         wgpuCommandEncoderBeginRenderPass(frameData->encoder, &desc);
   }
 
-  spriteRendererInitPass(0);
-  Sprite spr = {.depth = 1,
-                .idx = 0,
-                .dst = {.x = 0, .y = 0, .w = 48, .h = 16},
-                .src = {.x = 0, .y = 0, .w = 48, .h = 16}};
-  spriteRendererDraw(&spr);
-  spriteRendererEndPass(renderPassEncoder);
+  renderScene(renderPassEncoder, state);
 
   // Finish Frame
   {
