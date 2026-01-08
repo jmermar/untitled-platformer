@@ -1,12 +1,55 @@
 #include "render.h"
 #include "../files.h"
+#include "../types.h"
 #include "blit_to_screen.h"
 #include "commands.h"
 #include "render_imp.h"
-#include "resources.h"
 #include "sprite_renderer.h"
+#include "util.h"
+#include <GLFW/glfw3.h>
+#include <assert.h>
+#include <dawn/webgpu.h>
 #include <memory.h>
+#include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+#include <webgpu/webgpu_glfw.h>
+
+typedef struct {
+  SurfaceTextureView screenSurface;
+  WGPUCommandEncoder encoder;
+  CommandBuffer cmd;
+} FrameData;
+
+typedef struct {
+  GLFWwindow *window;
+  uint32_t width, height;
+
+  void *spriteRenderer;
+
+  WGPUInstance instance;
+  WGPUAdapter adapter;
+  WGPUDevice device;
+  WGPUSurface surface;
+  WGPUQueue queue;
+  WGPUCommandEncoder encoder;
+  WGPUTextureFormat format;
+
+  int requestAdapterEnded;
+
+  WGPUBindGroup texturesBind;
+
+  FrameData frameData;
+
+  TextureView *textures;
+  size_t numTextures;
+  size_t maxTextures;
+  int32_t texturesDirty;
+
+  TextureView backbuffer;
+
+} RenderContext;
 
 RenderContext renderContext = {0};
 
@@ -188,18 +231,20 @@ int renderInit(RenderInitParams *params) {
 
   renderContext.frameData.cmd = createCommandBuffer(1024);
 
-  if (spriteRendererCreate()) {
+  if ((renderContext.spriteRenderer = spriteRendererCreate(
+           renderContext.device, WGPUTextureFormat_RGBA8Unorm)) == 0) {
     renderFinish();
     return -1;
   }
 
   renderContext.backbuffer = textureViewCreate(
-      "Backbuffer", (Size){.w = params->canvasWidth, .h = params->canvasHeight},
-      1, WGPUTextureFormat_RGBA8Unorm,
+      renderContext.device, "Backbuffer", params->canvasWidth,
+      params->canvasHeight, 1, WGPUTextureFormat_RGBA8Unorm,
       WGPUTextureUsage_CopyDst | WGPUTextureUsage_CopySrc |
           WGPUTextureUsage_RenderAttachment | WGPUTextureUsage_TextureBinding);
 
-  if (blitToScreenInit()) {
+  if (blitToScreenInit(renderContext.device, WGPUTextureFormat_BGRA8Unorm,
+                       &renderContext.backbuffer)) {
     renderFinish();
     return -1;
   }
@@ -213,6 +258,9 @@ void renderFinish() {
     textureViewDestroy(renderContext.textures + i);
   }
   free(renderContext.textures);
+  if (renderContext.spriteRenderer) {
+    spriteRendererFinish();
+  }
   renderContext.textures = 0;
   renderContext.numTextures = 0;
   commandBufferClear(&renderContext.frameData.cmd);
@@ -242,11 +290,12 @@ TextureRef loadTextureArray(const char *path, uint32_t nCols, uint32_t nRows) {
   }
 
   renderContext.textures[renderContext.numTextures] = textureViewCreate(
-      "Loaded texture", (Size){.w = image->w, .h = image->h}, image->layers,
+      renderContext.device, "Loaded texture", image->w, image->h, image->layers,
       WGPUTextureFormat_RGBA8Unorm,
       WGPUTextureUsage_CopyDst | WGPUTextureUsage_TextureBinding);
 
-  textureViewWrite(renderContext.textures + renderContext.numTextures,
+  textureViewWrite(renderContext.queue,
+                   renderContext.textures + renderContext.numTextures,
                    image->pixels);
 
   free(image);
@@ -255,8 +304,14 @@ TextureRef loadTextureArray(const char *path, uint32_t nCols, uint32_t nRows) {
 
 void renderFrame(RenderState *state) {
 
+  Rect viewport = {.x = 0,
+                   .y = 0,
+                   .h = renderContext.backbuffer.size.height,
+                   .w = renderContext.backbuffer.size.width};
+
   if (renderContext.texturesDirty) {
-    spriteRendererUpdateTextures();
+    spriteRendererUpdateTextures(renderContext.textures,
+                                 renderContext.numTextures);
     renderContext.texturesDirty = 0;
   }
 
@@ -291,9 +346,12 @@ void renderFrame(RenderState *state) {
     RenderSprite *spr = state->sprites + i;
     if (spr->texture != prevTexture) {
       if (prevTexture) {
-        spriteRendererEndPass(renderPassEncoder);
+        spriteRendererEndPass(renderContext.queue, renderPassEncoder);
       }
-      spriteRendererInitPass(spr->texture - 1);
+      spriteRendererInitPass(
+          spr->texture - 1,
+          (Size){.w = renderContext.textures[spr->texture - 1].size.width,
+                 .h = renderContext.textures[spr->texture - 1].size.height});
       prevTexture = spr->texture;
     }
     Sprite s = {.depth = spr->depth,
@@ -301,16 +359,18 @@ void renderFrame(RenderState *state) {
                 .src = spr->src,
                 .idx = spr->layer,
                 .depth = spr->depth};
-    spriteRendererDraw(&s);
+
+    spriteRendererDraw(&s, &viewport);
   }
   if (prevTexture) {
-    spriteRendererEndPass(renderPassEncoder);
+    spriteRendererEndPass(renderContext.queue, renderPassEncoder);
   }
 
   // Finish Frame
   {
     wgpuRenderPassEncoderEnd(renderPassEncoder);
-    blitBackbufferToScreen();
+    blitBufferToScreen(frameData->encoder, frameData->screenSurface.view,
+                       renderContext.width, renderContext.height);
     wgpuRenderPassEncoderRelease(renderPassEncoder);
 
     {

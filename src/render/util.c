@@ -1,21 +1,23 @@
-#include "resources.h"
+#include "util.h"
 #include "../files.h"
-TextureView textureViewCreate(const char *name, Size size, uint32_t layers,
+#include "assert.h"
+TextureView textureViewCreate(WGPUDevice device, const char *name, uint32_t w,
+                              uint32_t h, uint32_t layers,
                               WGPUTextureFormat format,
                               WGPUTextureUsage usage) {
   WGPUTextureDescriptor desc = {0};
   desc.format = format;
   desc.label = WGPU_STR(name);
   desc.mipLevelCount = 1;
-  desc.size = (WGPUExtent3D){
-      .width = size.w, .height = size.h, .depthOrArrayLayers = layers};
+  desc.size =
+      (WGPUExtent3D){.width = w, .height = h, .depthOrArrayLayers = layers};
   desc.viewFormatCount = 0;
   desc.viewFormats = 0;
   desc.dimension = WGPUTextureDimension_2D;
   desc.usage = usage;
   desc.sampleCount = 1;
   WGPUTexture tex;
-  if (!(tex = wgpuDeviceCreateTexture(renderContext.device, &desc))) {
+  if (!(tex = wgpuDeviceCreateTexture(device, &desc))) {
     printf("Error creating texture\n");
     abort();
   }
@@ -71,7 +73,7 @@ size_t getTexturePixelSize(TextureView *t) {
   abort();
 }
 
-void textureViewWrite(TextureView *tex, void *data) {
+void textureViewWrite(WGPUQueue queue, TextureView *tex, void *data) {
   size_t bytes = getTexturePixelSize(tex);
   WGPUTexelCopyTextureInfo info = {0};
   info.mipLevel = 0;
@@ -81,19 +83,20 @@ void textureViewWrite(TextureView *tex, void *data) {
   WGPUTexelCopyBufferLayout layout = {0};
   layout.bytesPerRow = bytes * tex->size.width;
   layout.rowsPerImage = tex->size.height;
-  wgpuQueueWriteTexture(renderContext.queue, &info, data,
+  wgpuQueueWriteTexture(queue, &info, data,
                         layout.bytesPerRow * tex->size.height *
                             tex->size.depthOrArrayLayers,
                         &layout, &tex->size);
 }
 
-Buffer bufferCreate(const char *label, size_t size, WGPUBufferUsage usage) {
+Buffer bufferCreate(WGPUDevice device, const char *label, size_t size,
+                    WGPUBufferUsage usage) {
   assert(size > 0);
   WGPUBufferDescriptor desc = {0};
   desc.size = size;
   desc.usage = usage;
   desc.label = WGPU_STR(label);
-  return (Buffer){.buffer = wgpuDeviceCreateBuffer(renderContext.device, &desc),
+  return (Buffer){.buffer = wgpuDeviceCreateBuffer(device, &desc),
                   .size = size};
 }
 void bufferDestroy(Buffer *buffer) {
@@ -103,12 +106,12 @@ void bufferDestroy(Buffer *buffer) {
   }
 }
 
-void bufferWrite(Buffer *buffer, size_t size, void *data) {
+void bufferWrite(WGPUQueue queue, Buffer *buffer, size_t size, void *data) {
   assert(buffer && buffer->size >= size);
-  wgpuQueueWriteBuffer(renderContext.queue, buffer->buffer, 0, data, size);
+  wgpuQueueWriteBuffer(queue, buffer->buffer, 0, data, size);
 }
 
-WGPUShaderModule compileShaderModule(const char *src) {
+WGPUShaderModule compileShaderModule(WGPUDevice device, const char *src) {
   WGPUShaderModuleDescriptor desc = {0};
 
   WGPUShaderSourceWGSL shaderCodeDesc = {0};
@@ -116,41 +119,52 @@ WGPUShaderModule compileShaderModule(const char *src) {
   shaderCodeDesc.code = WGPU_STR(src);
   desc.nextInChain = &shaderCodeDesc.chain;
 
-  return wgpuDeviceCreateShaderModule(renderContext.device, &desc);
+  return wgpuDeviceCreateShaderModule(device, &desc);
 }
 
-WGPUShaderModule createShaderModule(const char *filepath) {
+WGPUShaderModule createShaderModule(WGPUDevice device, const char *filepath) {
   char *src = readTextFile(filepath);
 
   if (src == 0) {
     return 0;
   }
 
-  WGPUShaderModule module = compileShaderModule(src);
+  WGPUShaderModule module = compileShaderModule(device, src);
   free(src);
 
   return module;
 }
 
-WGPUVertexBufferLayout getSpriteBufferLayout(WGPUVertexAttribute *attr) {
-  WGPUVertexBufferLayout layout = {0};
+CommandBuffer createCommandBuffer(size_t capacity) {
+  return (CommandBuffer){.capacity = capacity,
+                         .commands =
+                             malloc(sizeof(WGPUCommandBuffer) * capacity)};
+}
 
-  attr[0].format = WGPUVertexFormat_Float32x3;
-  attr[0].offset = 0;
-  attr[0].shaderLocation = 0;
+void commandBufferDestroy(CommandBuffer *buffer) { free(buffer->commands); }
 
-  attr[1].format = WGPUVertexFormat_Float32x2;
-  attr[1].offset = 3 * sizeof(float);
-  attr[1].shaderLocation = 1;
+void commandBufferResize(CommandBuffer *buffer, size_t newCapacity) {
+  size_t cpyLength =
+      (newCapacity > buffer->capacity ? buffer->capacity : newCapacity) *
+      sizeof(WGPUCommandBuffer);
 
-  attr[2].format = WGPUVertexFormat_Uint32;
-  attr[2].offset = 5 * sizeof(uint32_t);
-  attr[2].shaderLocation = 2;
+  void *old = buffer->commands;
+  buffer->commands = malloc(sizeof(WGPUCommandBuffer) * newCapacity);
+  memcpy(buffer->commands, old, cpyLength);
+  free(old);
+}
 
-  layout.arrayStride = 5 * sizeof(float) + sizeof(uint32_t);
-  layout.attributeCount = 3;
-  layout.attributes = attr;
-  layout.stepMode = WGPUVertexStepMode_Vertex;
+void commandBufferAppend(CommandBuffer *buffer, WGPUCommandBuffer command) {
+  if (buffer->size == buffer->capacity) {
+    commandBufferResize(buffer, buffer->capacity + 256);
+  }
 
-  return layout;
+  buffer->commands[buffer->size++] = command;
+}
+
+void commandBufferClear(CommandBuffer *buffer) {
+  for (size_t i = 0; i < buffer->size; i++) {
+    wgpuCommandBufferRelease(buffer->commands[i]);
+  }
+  buffer->size = 0;
 }

@@ -1,7 +1,9 @@
 #pragma once
-#include <dawn/webgpu.h>
+#include "util.h"
 
-int blitToScreenInit();
+int blitToScreenInit(WGPUDevice device, WGPUTextureFormat attachFormat,
+                     TextureView *backbuffer);
 void blitToScreenFinish();
 
-void blitBackbufferToScreen();
+void blitBufferToScreen(WGPUCommandEncoder encoder, WGPUTextureView attachView,
+                        size_t attachW, size_t attachH);

@@ -1,6 +1,6 @@
 #pragma once
 #include "../types.h"
-#include "render_imp.h"
+#include "util.h"
 
 typedef struct {
   Rect src, dst;
@@ -8,13 +8,13 @@ typedef struct {
   uint32_t idx;
 } Sprite;
 
-int spriteRendererCreate();
+void *spriteRendererCreate(WGPUDevice device, WGPUTextureFormat pipelineFormat);
 void spriteRendererFinish();
 
-void spriteRendererUpdateTextures();
+void spriteRendererUpdateTextures(TextureView *textures, size_t num);
 
-void spriteRendererInitPass(uint32_t textureID);
-void spriteRendererDraw(Sprite *spr);
-void spriteRendererEndPass(WGPURenderPassEncoder renderPass);
+void spriteRendererInitPass(uint32_t id, Size textureSize);
+void spriteRendererDraw(Sprite *spr, Rect *viewport);
+void spriteRendererEndPass(WGPUQueue queue, WGPURenderPassEncoder renderPass);
 
 void spriteRendererBlitImage(WGPURenderPassEncoder renderPass, uint32_t texID);

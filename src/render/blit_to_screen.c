@@ -1,180 +1,168 @@
 #include "blit_to_screen.h"
-#include "render_imp.h"
-#include "resources.h"
+#include <assert.h>
 typedef struct {
+  WGPUDevice device;
   WGPUPipelineLayout pipelineLayout;
   WGPURenderPipeline pipeline;
   WGPUBindGroup group;
   WGPUBindGroupLayout bindgroupLayout;
   WGPUSampler sampler;
-} BlitToScreenContext;
 
-static BlitToScreenContext context;
+  TextureView backbuffer;
+} BlitToScreen;
 
-static int createPipelineLayout() {
-  WGPUBindGroupLayoutEntry entry[3] = {0};
-  entry[0].binding = 0;
-  entry[0].visibility = WGPUShaderStage_Fragment;
-  entry[0].texture.sampleType = WGPUTextureSampleType_Float;
-  entry[0].texture.viewDimension = WGPUTextureViewDimension_2DArray;
+static BlitToScreen *context;
 
-  entry[1].binding = 1;
-  entry[1].visibility = WGPUShaderStage_Fragment;
-  entry[1].sampler.type = WGPUSamplerBindingType_Filtering;
+int blitToScreenInit(WGPUDevice device, WGPUTextureFormat attachFormat,
+                     TextureView *backbuffer) {
+  assert(context == 0);
+  context = malloc(sizeof(BlitToScreen));
+  memset(context, 0, sizeof(BlitToScreen));
+
+  context->backbuffer = *backbuffer;
+
+  context->device = device;
+
+  WGPUBindGroupLayoutEntry bindGroupLayoutEntry[3] = {0};
+  bindGroupLayoutEntry[0].binding = 0;
+  bindGroupLayoutEntry[0].visibility = WGPUShaderStage_Fragment;
+  bindGroupLayoutEntry[0].texture.sampleType = WGPUTextureSampleType_Float;
+  bindGroupLayoutEntry[0].texture.viewDimension =
+      WGPUTextureViewDimension_2DArray;
+
+  bindGroupLayoutEntry[1].binding = 1;
+  bindGroupLayoutEntry[1].visibility = WGPUShaderStage_Fragment;
+  bindGroupLayoutEntry[1].sampler.type = WGPUSamplerBindingType_Filtering;
 
   WGPUBindGroupLayoutDescriptor desc = {0};
-  desc.entries = entry;
+  desc.entries = bindGroupLayoutEntry;
   desc.entryCount = 2;
   desc.label = WGPU_STR("Blit screen Layout Group");
 
-  if ((context.bindgroupLayout =
-           wgpuDeviceCreateBindGroupLayout(renderContext.device, &desc)) == 0) {
+  if ((context->bindgroupLayout =
+           wgpuDeviceCreateBindGroupLayout(device, &desc)) == 0) {
     return -1;
   }
 
-  WGPUPipelineLayoutDescriptor layoutDesc = {0};
-  layoutDesc.bindGroupLayoutCount = 1;
-  layoutDesc.bindGroupLayouts = &context.bindgroupLayout;
-  layoutDesc.label = WGPU_STR("Blit screen Pipeline Layout");
+  WGPUPipelineLayoutDescriptor pipelineLayoutDesc = {0};
+  pipelineLayoutDesc.bindGroupLayoutCount = 1;
+  pipelineLayoutDesc.bindGroupLayouts = &context->bindgroupLayout;
+  pipelineLayoutDesc.label = WGPU_STR("Blit screen Pipeline Layout");
 
-  if ((context.pipelineLayout = wgpuDeviceCreatePipelineLayout(
-           renderContext.device, &layoutDesc)) == 0) {
+  if ((context->pipelineLayout =
+           wgpuDeviceCreatePipelineLayout(device, &pipelineLayoutDesc)) == 0) {
     return -1;
   }
 
-  return 0;
-}
+  WGPURenderPipelineDescriptor pipelineDesc = {0};
 
-static int createPipeline() {
-  WGPURenderPipelineDescriptor desc = {0};
-
-  WGPUShaderModule module;
-  if ((module = createShaderModule("res/shaders/blit.wgsl")) == 0) {
+  WGPUShaderModule shaderModule;
+  if ((shaderModule =
+           createShaderModule(context->device, "res/shaders/blit.wgsl")) == 0) {
     return -1;
   }
 
-  desc.vertex.module = module;
-  desc.vertex.entryPoint = WGPU_STR("vs_main");
-  desc.vertex.buffers = 0;
-  desc.vertex.bufferCount = 0;
+  pipelineDesc.vertex.module = shaderModule;
+  pipelineDesc.vertex.entryPoint = WGPU_STR("vs_main");
+  pipelineDesc.vertex.buffers = 0;
+  pipelineDesc.vertex.bufferCount = 0;
 
-  desc.primitive.topology = WGPUPrimitiveTopology_TriangleList;
-  desc.primitive.stripIndexFormat = WGPUIndexFormat_Undefined;
-  desc.primitive.frontFace = WGPUFrontFace_CCW;
-  desc.primitive.cullMode = WGPUCullMode_None;
+  pipelineDesc.primitive.topology = WGPUPrimitiveTopology_TriangleList;
+  pipelineDesc.primitive.stripIndexFormat = WGPUIndexFormat_Undefined;
+  pipelineDesc.primitive.frontFace = WGPUFrontFace_CCW;
+  pipelineDesc.primitive.cullMode = WGPUCullMode_None;
 
   WGPUFragmentState fragment = {0};
 
-  fragment.module = module;
+  fragment.module = shaderModule;
   fragment.entryPoint = WGPU_STR("fs_main");
 
-  desc.fragment = &fragment;
+  pipelineDesc.fragment = &fragment;
 
-  desc.depthStencil = 0;
+  pipelineDesc.depthStencil = 0;
 
   WGPUBlendState blendState = {0};
   WGPUColorTargetState colorTarget = {0};
-  colorTarget.format = renderContext.format;
+  colorTarget.format = attachFormat;
   colorTarget.blend = 0;
   colorTarget.writeMask = WGPUColorWriteMask_All;
   fragment.targetCount = 1;
   fragment.targets = &colorTarget;
 
-  desc.multisample.count = 1;
-  desc.multisample.mask = ~0u;
-  desc.multisample.alphaToCoverageEnabled = 0;
-  desc.layout = context.pipelineLayout;
+  pipelineDesc.multisample.count = 1;
+  pipelineDesc.multisample.mask = ~0u;
+  pipelineDesc.multisample.alphaToCoverageEnabled = 0;
+  pipelineDesc.layout = context->pipelineLayout;
 
-  context.pipeline =
-      wgpuDeviceCreateRenderPipeline(renderContext.device, &desc);
+  context->pipeline = wgpuDeviceCreateRenderPipeline(device, &pipelineDesc);
 
-  wgpuShaderModuleRelease(module);
+  wgpuShaderModuleRelease(shaderModule);
 
-  if (context.pipeline == 0)
+  if (context->pipeline == 0)
     return -1;
-  return 0;
-}
 
-int createBindGroup() {
+  WGPUSamplerDescriptor samplerDescriptor = {0};
+  samplerDescriptor.addressModeU = WGPUAddressMode_ClampToEdge;
+  samplerDescriptor.addressModeV = WGPUAddressMode_ClampToEdge;
+  samplerDescriptor.addressModeW = WGPUAddressMode_ClampToEdge;
 
-  {
-    WGPUSamplerDescriptor desc = {0};
-    desc.addressModeU = WGPUAddressMode_ClampToEdge;
-    desc.addressModeV = WGPUAddressMode_ClampToEdge;
-    desc.addressModeW = WGPUAddressMode_ClampToEdge;
-
-    desc.magFilter = WGPUFilterMode_Nearest;
-    desc.minFilter = WGPUFilterMode_Nearest;
-    desc.mipmapFilter = WGPUMipmapFilterMode_Linear;
-    desc.lodMaxClamp = 1.f;
-    desc.maxAnisotropy = 1;
-    desc.compare = WGPUCompareFunction_Undefined;
-    if ((context.sampler =
-             wgpuDeviceCreateSampler(renderContext.device, &desc)) == 0) {
-      return -1;
-    }
-  }
-  {
-    WGPUBindGroupEntry entries[2] = {0};
-    entries[0].binding = 0;
-    entries[0].textureView = renderContext.backbuffer.view;
-    entries[1].binding = 1;
-    entries[1].sampler = context.sampler;
-    WGPUBindGroupDescriptor desc = {0};
-    desc.entryCount = 2;
-    desc.entries = entries;
-    desc.layout = context.bindgroupLayout;
-
-    if ((context.group =
-             wgpuDeviceCreateBindGroup(renderContext.device, &desc)) == 0) {
-      return -1;
-    }
-  }
-
-  return 0;
-}
-
-int blitToScreenInit() {
-  context = (BlitToScreenContext){0};
-  if (createPipelineLayout()) {
-    blitToScreenFinish();
+  samplerDescriptor.magFilter = WGPUFilterMode_Nearest;
+  samplerDescriptor.minFilter = WGPUFilterMode_Nearest;
+  samplerDescriptor.mipmapFilter = WGPUMipmapFilterMode_Linear;
+  samplerDescriptor.lodMaxClamp = 1.f;
+  samplerDescriptor.maxAnisotropy = 1;
+  samplerDescriptor.compare = WGPUCompareFunction_Undefined;
+  if ((context->sampler =
+           wgpuDeviceCreateSampler(device, &samplerDescriptor)) == 0) {
     return -1;
   }
-  if (createPipeline()) {
-    blitToScreenFinish();
+
+  WGPUBindGroupEntry bindGroupEntry[2] = {0};
+  bindGroupEntry[0].binding = 0;
+  bindGroupEntry[0].textureView = backbuffer->view;
+  bindGroupEntry[1].binding = 1;
+  bindGroupEntry[1].sampler = context->sampler;
+  WGPUBindGroupDescriptor bindGroupDescriptor = {0};
+  bindGroupDescriptor.entryCount = 2;
+  bindGroupDescriptor.entries = bindGroupEntry;
+  bindGroupDescriptor.layout = context->bindgroupLayout;
+
+  if ((context->group =
+           wgpuDeviceCreateBindGroup(device, &bindGroupDescriptor)) == 0) {
     return -1;
   }
-  if (createBindGroup()) {
-    blitToScreenFinish();
-    return -1;
-  }
+
   return 0;
 }
 
 void blitToScreenFinish() {
-  if (context.group) {
-    wgpuBindGroupRelease(context.group);
+  if (!context)
+    return;
+  if (context->group) {
+    wgpuBindGroupRelease(context->group);
   }
-  if (context.pipeline) {
-    wgpuRenderPipelineRelease(context.pipeline);
+  if (context->pipeline) {
+    wgpuRenderPipelineRelease(context->pipeline);
   }
-  if (context.pipelineLayout) {
-    wgpuPipelineLayoutRelease(context.pipelineLayout);
+  if (context->pipelineLayout) {
+    wgpuPipelineLayoutRelease(context->pipelineLayout);
   }
-  if (context.bindgroupLayout) {
-    wgpuBindGroupLayoutRelease(context.bindgroupLayout);
+  if (context->bindgroupLayout) {
+    wgpuBindGroupLayoutRelease(context->bindgroupLayout);
   }
-  if (context.sampler) {
-    wgpuSamplerRelease(context.sampler);
+  if (context->sampler) {
+    wgpuSamplerRelease(context->sampler);
   }
-  context = (BlitToScreenContext){0};
+  free(context);
+  context = 0;
 }
 
-void blitBackbufferToScreen() {
+void blitBufferToScreen(WGPUCommandEncoder encoder, WGPUTextureView attachView,
+                        size_t attachW, size_t attachH) {
   WGPURenderPassEncoder renderPass;
   {
     WGPURenderPassColorAttachment renderPassColorAttachment = {0};
-    renderPassColorAttachment.view = renderContext.frameData.screenSurface.view;
+    renderPassColorAttachment.view = attachView;
     renderPassColorAttachment.loadOp = WGPULoadOp_Clear;
     renderPassColorAttachment.storeOp = WGPUStoreOp_Store;
     renderPassColorAttachment.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
@@ -182,16 +170,12 @@ void blitBackbufferToScreen() {
     desc.colorAttachmentCount = 1;
     desc.colorAttachments = &renderPassColorAttachment;
     desc.label = WGPU_STR("Blit backbuffer to screen");
-    renderPass = wgpuCommandEncoderBeginRenderPass(
-        renderContext.frameData.encoder, &desc);
+    renderPass = wgpuCommandEncoderBeginRenderPass(encoder, &desc);
   }
 
-  uint32_t w = renderContext.backbuffer.size.width;
-  uint32_t h = renderContext.backbuffer.size.height;
+  wgpuRenderPassEncoderSetBindGroup(renderPass, 0, context->group, 0, 0);
 
-  wgpuRenderPassEncoderSetBindGroup(renderPass, 0, context.group, 0, 0);
-
-  wgpuRenderPassEncoderSetPipeline(renderPass, context.pipeline);
+  wgpuRenderPassEncoderSetPipeline(renderPass, context->pipeline);
 
   wgpuRenderPassEncoderDraw(renderPass, 6, 1, 0, 0);
 
