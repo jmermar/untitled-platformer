@@ -120,7 +120,7 @@ int createPipeline() {
 
   WGPUBlendState blendState = {0};
   WGPUColorTargetState colorTarget = {0};
-  colorTarget.format = renderContext.format;
+  colorTarget.format = WGPUTextureFormat_RGBA8Unorm;
   colorTarget.blend = 0;
   colorTarget.writeMask = WGPUColorWriteMask_All;
   fragment.targetCount = 1;
@@ -241,9 +241,11 @@ void resizeSpriteBuffer() {
                    BUFFER_USAGE_DEFAULT | WGPUBufferUsage_Vertex);
 }
 
-float clipX(int32_t x) { return ((float)x / renderContext.width) * 2 - 1; }
+float clipX(int32_t x) {
+  return ((float)x / renderContext.backbuffer.size.width) * 2 - 1;
+}
 float clipY(int32_t y) {
-  return (1 - ((float)y / renderContext.height)) * 2 - 1;
+  return ((float)y / renderContext.backbuffer.size.height) * 2 - 1;
 }
 
 void spriteRendererDraw(Sprite *spr) {

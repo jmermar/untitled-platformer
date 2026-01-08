@@ -10,7 +10,7 @@ TextureView textureViewCreate(const char *name, Size size, uint32_t layers,
   WGPUTextureDescriptor desc = {0};
   desc.format = format;
   desc.label = WGPU_STR(name);
-  desc.mipLevelCount = 4;
+  desc.mipLevelCount = 1;
   desc.size = (WGPUExtent3D){
       .width = size.w, .height = size.h, .depthOrArrayLayers = layers};
   desc.viewFormatCount = 0;
@@ -28,7 +28,7 @@ TextureView textureViewCreate(const char *name, Size size, uint32_t layers,
   vdesc.arrayLayerCount = layers;
   vdesc.baseArrayLayer = 0;
   vdesc.baseMipLevel = 0;
-  vdesc.mipLevelCount = 4;
+  vdesc.mipLevelCount = 1;
   vdesc.format = format;
   vdesc.label = WGPU_STR(name);
   vdesc.usage = usage;

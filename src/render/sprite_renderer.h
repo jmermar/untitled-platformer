@@ -16,3 +16,5 @@ void spriteRendererUpdateTextures();
 void spriteRendererInitPass(uint32_t textureID);
 void spriteRendererDraw(Sprite *spr);
 void spriteRendererEndPass(WGPURenderPassEncoder renderPass);
+
+void spriteRendererBlitImage(WGPURenderPassEncoder renderPass, uint32_t texID);

@@ -81,7 +81,7 @@ int configureSurface() {
   WGPUSurfaceConfiguration config = {0};
   config.width = renderContext.width;
   config.height = renderContext.height;
-  config.format = capabilities.formats[0];
+  config.format = WGPUTextureFormat_BGRA8Unorm;
   config.usage = WGPUTextureUsage_RenderAttachment;
   config.device = renderContext.device;
   config.presentMode = WGPUPresentMode_Fifo;

@@ -37,6 +37,9 @@ typedef struct {
   size_t numTextures;
   size_t maxTextures;
   int32_t texturesDirty;
+
+  TextureView backbuffer;
+
 } RenderContext;
 
 extern RenderContext renderContext;

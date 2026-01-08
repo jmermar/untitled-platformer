@@ -3,8 +3,8 @@
 #include <stdio.h>
 
 GLFWwindow *window = 0;
-const uint32_t width = 512;
-const uint32_t height = 512;
+const uint32_t width = 320 * 4;
+const uint32_t height = 240 * 4;
 
 RenderSprite sprites[1024 * 1024];
 size_t numSprites = 0;
@@ -48,8 +48,11 @@ int main() {
     return -1;
   }
 
-  RenderInitParams params = {
-      .height = height, .width = width, .window = window};
+  RenderInitParams params = {.height = height,
+                             .width = width,
+                             .window = window,
+                             .canvasHeight = 240,
+                             .canvasWidth = 320};
 
   if (renderInit(&params)) {
     printf("Error trying to initialize renderer\n");
@@ -69,11 +72,11 @@ int main() {
     for (int y = 0; y < (height / 16) + 1; y++) {
       for (int x = 0; x < (width / 16) + 1; x++) {
         uint32_t id = 0;
-        if (y < 16)
+        if (y < 9)
           continue;
-        if (y < 17)
+        if (y < 10)
           id = 0;
-        else if (y < 22)
+        else if (y < 12)
           id = 1;
         else
           id = 2;

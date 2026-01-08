@@ -6,6 +6,8 @@ typedef struct {
   uint32_t width;
   uint32_t height;
   GLFWwindow *window;
+
+  uint32_t canvasWidth, canvasHeight;
 } RenderInitParams;
 
 typedef union {

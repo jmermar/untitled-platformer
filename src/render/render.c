@@ -1,5 +1,6 @@
 #include "render.h"
 #include "../files.h"
+#include "blit_to_screen.h"
 #include "commands.h"
 #include "sprite_renderer.h"
 #include "wgpu.h"
@@ -26,10 +27,23 @@ int renderInit(RenderInitParams *params) {
     renderFinish();
     return -1;
   }
+
+  renderContext.backbuffer = textureViewCreate(
+      "Backbuffer", (Size){.w = params->canvasWidth, .h = params->canvasHeight},
+      1, WGPUTextureFormat_RGBA8Unorm,
+      WGPUTextureUsage_CopyDst | WGPUTextureUsage_CopySrc |
+          WGPUTextureUsage_RenderAttachment | WGPUTextureUsage_TextureBinding);
+
+  if (blitToScreenInit()) {
+    renderFinish();
+    return -1;
+  }
   return 0;
 }
 
 void renderFinish() {
+  blitToScreenFinish();
+  textureViewDestroy(&renderContext.backbuffer);
   for (int i = 0; i < renderContext.numTextures; i++) {
     textureViewDestroy(renderContext.textures + i);
   }
@@ -121,7 +135,7 @@ void renderFrame(RenderState *state) {
     frameData->encoder = wgpu_createCommandEncoder("My encoder");
 
     WGPURenderPassColorAttachment renderPassColorAttachment = {0};
-    renderPassColorAttachment.view = frameData->screenSurface.view;
+    renderPassColorAttachment.view = renderContext.backbuffer.view;
     renderPassColorAttachment.loadOp = WGPULoadOp_Clear;
     renderPassColorAttachment.storeOp = WGPUStoreOp_Store;
     renderPassColorAttachment.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
@@ -138,8 +152,8 @@ void renderFrame(RenderState *state) {
 
   // Finish Frame
   {
-    FrameData *frameData = &renderContext.frameData;
     wgpuRenderPassEncoderEnd(renderPassEncoder);
+    blitBackbufferToScreen();
     wgpuRenderPassEncoderRelease(renderPassEncoder);
 
     {
