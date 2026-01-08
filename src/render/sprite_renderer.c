@@ -1,7 +1,5 @@
 #include "sprite_renderer.h"
-#include "buffers.h"
-#include "pipelines.h"
-#include "wgpu.h"
+#include "resources.h"
 #include <stdio.h>
 #define INITIAL_MAX_SPRITES 256
 
@@ -34,89 +32,88 @@ typedef struct {
 } SpriteRendererContext;
 SpriteRendererContext context = {0};
 
-int createPipelineLayout() {
-  WGPUBindGroupLayoutEntry entry[3] = {0};
-  entry[0].binding = 0;
-  entry[0].visibility = WGPUShaderStage_Fragment;
-  entry[0].texture.sampleType = WGPUTextureSampleType_Float;
-  entry[0].texture.viewDimension = WGPUTextureViewDimension_2DArray;
+int spriteRendererCreate() {
+  context = (SpriteRendererContext){0};
+#pragma region CREATE PIPELINE_LAYOUT
+  WGPUBindGroupLayoutEntry bindGroupEntry[3] = {0};
+  bindGroupEntry[0].binding = 0;
+  bindGroupEntry[0].visibility = WGPUShaderStage_Fragment;
+  bindGroupEntry[0].texture.sampleType = WGPUTextureSampleType_Float;
+  bindGroupEntry[0].texture.viewDimension = WGPUTextureViewDimension_2DArray;
 
-  entry[1].binding = 1;
-  entry[1].visibility = WGPUShaderStage_Fragment;
-  entry[1].sampler.type = WGPUSamplerBindingType_Filtering;
+  bindGroupEntry[1].binding = 1;
+  bindGroupEntry[1].visibility = WGPUShaderStage_Fragment;
+  bindGroupEntry[1].sampler.type = WGPUSamplerBindingType_Filtering;
 
-  WGPUBindGroupLayoutDescriptor desc = {0};
-  desc.entries = entry;
-  desc.entryCount = 2;
-  desc.label = WGPU_STR("SpriteRenderer Layout Group");
+  WGPUBindGroupLayoutDescriptor groupLayoutDesc = {0};
+  groupLayoutDesc.entries = bindGroupEntry;
+  groupLayoutDesc.entryCount = 2;
+  groupLayoutDesc.label = WGPU_STR("SpriteRenderer Layout Group");
 
-  if ((context.bindgroupLayout =
-           wgpuDeviceCreateBindGroupLayout(renderContext.device, &desc)) == 0) {
+  if ((context.bindgroupLayout = wgpuDeviceCreateBindGroupLayout(
+           renderContext.device, &groupLayoutDesc)) == 0) {
     return -1;
   }
 
-  WGPUPipelineLayoutDescriptor layoutDesc = {0};
-  layoutDesc.bindGroupLayoutCount = 1;
-  layoutDesc.bindGroupLayouts = &context.bindgroupLayout;
-  layoutDesc.label = WGPU_STR("SpriteRenderer Pipeline Layout");
+  WGPUPipelineLayoutDescriptor pipelineLayoutDesc = {0};
+  pipelineLayoutDesc.bindGroupLayoutCount = 1;
+  pipelineLayoutDesc.bindGroupLayouts = &context.bindgroupLayout;
+  pipelineLayoutDesc.label = WGPU_STR("SpriteRenderer Pipeline Layout");
 
   if ((context.pipelineLayout = wgpuDeviceCreatePipelineLayout(
-           renderContext.device, &layoutDesc)) == 0) {
+           renderContext.device, &pipelineLayoutDesc)) == 0) {
     return -1;
   }
+#pragma end
+#pragma region CREATE_SAMPLER
 
-  return 0;
-}
+  WGPUSamplerDescriptor samplerDesc = {0};
+  samplerDesc.addressModeU = WGPUAddressMode_ClampToEdge;
+  samplerDesc.addressModeV = WGPUAddressMode_ClampToEdge;
+  samplerDesc.addressModeW = WGPUAddressMode_ClampToEdge;
 
-int createSampler() {
-  WGPUSamplerDescriptor desc = {0};
-  desc.addressModeU = WGPUAddressMode_ClampToEdge;
-  desc.addressModeV = WGPUAddressMode_ClampToEdge;
-  desc.addressModeW = WGPUAddressMode_ClampToEdge;
+  samplerDesc.magFilter = WGPUFilterMode_Nearest;
+  samplerDesc.minFilter = WGPUFilterMode_Nearest;
+  samplerDesc.mipmapFilter = WGPUMipmapFilterMode_Linear;
+  samplerDesc.lodMaxClamp = 1.f;
+  samplerDesc.maxAnisotropy = 1;
+  samplerDesc.compare = WGPUCompareFunction_Undefined;
 
-  desc.magFilter = WGPUFilterMode_Nearest;
-  desc.minFilter = WGPUFilterMode_Nearest;
-  desc.mipmapFilter = WGPUMipmapFilterMode_Linear;
-  desc.lodMaxClamp = 1.f;
-  desc.maxAnisotropy = 1;
-  desc.compare = WGPUCompareFunction_Undefined;
-
-  return (context.sampler =
-              wgpuDeviceCreateSampler(renderContext.device, &desc))
-             ? 0
-             : -1;
-}
-
-int createPipeline() {
-  WGPURenderPipelineDescriptor desc = {0};
+  if ((context.sampler =
+           wgpuDeviceCreateSampler(renderContext.device, &samplerDesc)) == 0) {
+    return -1;
+  }
+#pragma end
+#pragma region CREATE_PIPELINE
+  WGPURenderPipelineDescriptor pipelineDesc = {0};
 
   WGPUShaderModule module;
   if ((module = createShaderModule("res/shaders/sprite.wgsl")) == 0) {
     return -1;
   }
 
-  WGPUVertexAttribute attr[3];
+  WGPUVertexAttribute vertexAttr[3];
 
-  WGPUVertexBufferLayout bufferLayout = getSpriteBufferLayout(attr);
+  WGPUVertexBufferLayout bufferLayout = getSpriteBufferLayout(vertexAttr);
 
-  desc.vertex.module = module;
-  desc.vertex.entryPoint = WGPU_STR("vs_main");
-  desc.vertex.buffers = &bufferLayout;
-  desc.vertex.bufferCount = 1;
+  pipelineDesc.vertex.module = module;
+  pipelineDesc.vertex.entryPoint = WGPU_STR("vs_main");
+  pipelineDesc.vertex.buffers = &bufferLayout;
+  pipelineDesc.vertex.bufferCount = 1;
 
-  desc.primitive.topology = WGPUPrimitiveTopology_TriangleList;
-  desc.primitive.stripIndexFormat = WGPUIndexFormat_Undefined;
-  desc.primitive.frontFace = WGPUFrontFace_CCW;
-  desc.primitive.cullMode = WGPUCullMode_None;
+  pipelineDesc.primitive.topology = WGPUPrimitiveTopology_TriangleList;
+  pipelineDesc.primitive.stripIndexFormat = WGPUIndexFormat_Undefined;
+  pipelineDesc.primitive.frontFace = WGPUFrontFace_CCW;
+  pipelineDesc.primitive.cullMode = WGPUCullMode_None;
 
   WGPUFragmentState fragment = {0};
 
   fragment.module = module;
   fragment.entryPoint = WGPU_STR("fs_main");
 
-  desc.fragment = &fragment;
+  pipelineDesc.fragment = &fragment;
 
-  desc.depthStencil = 0;
+  pipelineDesc.depthStencil = 0;
 
   WGPUBlendState blendState = {0};
   WGPUColorTargetState colorTarget = {0};
@@ -126,39 +123,24 @@ int createPipeline() {
   fragment.targetCount = 1;
   fragment.targets = &colorTarget;
 
-  desc.multisample.count = 1;
-  desc.multisample.mask = ~0u;
-  desc.multisample.alphaToCoverageEnabled = 0;
-  desc.layout = context.pipelineLayout;
+  pipelineDesc.multisample.count = 1;
+  pipelineDesc.multisample.mask = ~0u;
+  pipelineDesc.multisample.alphaToCoverageEnabled = 0;
+  pipelineDesc.layout = context.pipelineLayout;
 
   context.pipeline =
-      wgpuDeviceCreateRenderPipeline(renderContext.device, &desc);
+      wgpuDeviceCreateRenderPipeline(renderContext.device, &pipelineDesc);
 
   wgpuShaderModuleRelease(module);
 
   if (context.pipeline == 0)
     return -1;
-  return 0;
-}
-
-int spriteRendererCreate() {
-  if (createPipelineLayout()) {
-    spriteRendererFinish();
-    return -1;
-  }
-
-  if (createSampler()) {
-    spriteRendererFinish();
-    return -1;
-  }
-
-  if (createPipeline()) {
-    spriteRendererFinish();
-    return -1;
-  }
+#pragma END
+#pragma region CREATE_SPRITE_BUFFER
   context.spriteBuffer =
       bufferCreate("Sprite", sizeof(SpriteData) * INITIAL_MAX_SPRITES,
-                   BUFFER_USAGE_DEFAULT | WGPUBufferUsage_Vertex);
+                   WGPUBufferUsage_CopyDst | WGPUBufferUsage_CopySrc |
+                       WGPUBufferUsage_Vertex);
   if (context.spriteBuffer.buffer == 0) {
     spriteRendererFinish();
     return -1;
@@ -170,6 +152,8 @@ int spriteRendererCreate() {
   if (context.cpuSpriteBuffer->data == 0) {
     return -1;
   }
+
+#pragma end
 
   return 0;
 }
@@ -223,24 +207,6 @@ void spriteRendererUpdateTextures() {
   }
 }
 
-void resizeSpriteBuffer() {
-  context.maxSprites = context.maxSprites * 2;
-  void *prevData = context.cpuSpriteBuffer;
-  if ((context.cpuSpriteBuffer =
-           malloc(context.maxSprites * sizeof(SpriteData))) == 0) {
-    printf("Error malloc at file %s line %d", __FILE_NAME__, __LINE__);
-    abort();
-  }
-  memcpy(context.cpuSpriteBuffer, prevData,
-         context.numSprites * sizeof(SpriteData));
-  free(prevData);
-
-  bufferDestroy(&context.spriteBuffer);
-  context.spriteBuffer =
-      bufferCreate("Sprites", sizeof(SpriteData) * context.maxSprites,
-                   BUFFER_USAGE_DEFAULT | WGPUBufferUsage_Vertex);
-}
-
 float clipX(int32_t x) {
   return ((float)x / renderContext.backbuffer.size.width) * 2 - 1;
 }
@@ -250,7 +216,23 @@ float clipY(int32_t y) {
 
 void spriteRendererDraw(Sprite *spr) {
   if (context.numSprites == context.maxSprites) {
-    resizeSpriteBuffer();
+    // [RESIZE SPRITE BUFFER]
+    context.maxSprites = context.maxSprites * 2;
+    void *prevData = context.cpuSpriteBuffer;
+    if ((context.cpuSpriteBuffer =
+             malloc(context.maxSprites * sizeof(SpriteData))) == 0) {
+      printf("Error malloc at file %s line %d", __FILE_NAME__, __LINE__);
+      abort();
+    }
+    memcpy(context.cpuSpriteBuffer, prevData,
+           context.numSprites * sizeof(SpriteData));
+    free(prevData);
+
+    bufferDestroy(&context.spriteBuffer);
+    context.spriteBuffer =
+        bufferCreate("Sprites", sizeof(SpriteData) * context.maxSprites,
+                     WGPUBufferUsage_CopyDst | WGPUBufferUsage_CopySrc |
+                         WGPUBufferUsage_Vertex);
   }
 
   float depth = spr->depth;

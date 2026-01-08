@@ -2,12 +2,174 @@
 #include "../files.h"
 #include "blit_to_screen.h"
 #include "commands.h"
+#include "render_imp.h"
+#include "resources.h"
 #include "sprite_renderer.h"
-#include "wgpu.h"
 #include <memory.h>
 #include <stdlib.h>
 
 RenderContext renderContext = {0};
+
+int instanceWait(WGPUFuture future) {
+  WGPUFutureWaitInfo wait = {.future = future};
+  WGPUWaitStatus status =
+      wgpuInstanceWaitAny(renderContext.instance, 1, &wait, 0);
+
+  if (status != WGPUWaitStatus_Success) {
+    return -1;
+  }
+  return 0;
+}
+
+void onAdapterRequestEnded(WGPURequestAdapterStatus status, WGPUAdapter adapter,
+                           WGPUStringView message, void *userdata,
+                           void *userdata2) {
+  if (status == WGPURequestAdapterStatus_Success) {
+    *((WGPUAdapter *)userdata) = adapter;
+  }
+}
+
+void onDeviceRequestEnded(WGPURequestDeviceStatus status, WGPUDevice device,
+                          WGPUStringView message, void *userdata1,
+                          void *userdata2) {
+  if (status == WGPURequestDeviceStatus_Success) {
+    *((WGPUDevice *)userdata1) = device;
+  }
+}
+
+void onError(WGPUDevice const *device, WGPUErrorType type,
+             WGPUStringView message, WGPU_NULLABLE void *userdata1,
+             WGPU_NULLABLE void *userdata2) {
+  printf("WGPU ERROR: %s\n", message.data);
+  abort();
+}
+
+WGPUAdapter requestAdapter() {
+  WGPURequestAdapterOptions adapterOpts = {0};
+
+  WGPUAdapter adapter = 0;
+
+  WGPURequestAdapterCallbackInfo info = {.mode = WGPUCallbackMode_WaitAnyOnly,
+                                         .callback = &onAdapterRequestEnded,
+                                         .userdata1 = (void *)&adapter};
+
+  if (instanceWait(wgpuInstanceRequestAdapter(renderContext.instance,
+                                              &adapterOpts, info))) {
+    return 0;
+  }
+
+  return adapter;
+}
+
+WGPUDevice requestDevice() {
+  WGPUDeviceDescriptor desc = {
+      .uncapturedErrorCallbackInfo.callback = onError,
+  };
+
+  WGPUDevice device = 0;
+
+  WGPURequestDeviceCallbackInfo info = {
+      .mode = WGPUCallbackMode_WaitAnyOnly,
+      .callback = &onDeviceRequestEnded,
+      .userdata1 = &device,
+  };
+  if (instanceWait(
+          wgpuAdapterRequestDevice(renderContext.adapter, &desc, info))) {
+    return 0;
+  }
+  return device;
+}
+
+void finishWGPU() {
+  if (renderContext.encoder) {
+    wgpuCommandEncoderRelease(renderContext.encoder);
+    renderContext.encoder = 0;
+  }
+  if (renderContext.queue) {
+    wgpuQueueRelease(renderContext.queue);
+    renderContext.queue = 0;
+  }
+  if (renderContext.surface) {
+    wgpuSurfaceUnconfigure(renderContext.surface);
+    wgpuSurfaceRelease(renderContext.surface);
+    renderContext.surface = 0;
+  }
+  if (renderContext.device) {
+    wgpuDeviceDestroy(renderContext.device);
+    renderContext.device = 0;
+  }
+  if (renderContext.adapter) {
+    wgpuAdapterRelease(renderContext.adapter);
+    renderContext.adapter = 0;
+  }
+  if (renderContext.instance) {
+    wgpuInstanceRelease(renderContext.instance);
+    renderContext.instance = 0;
+  }
+}
+
+SurfaceTextureView getNextSurfaceViewData() {
+  WGPUSurfaceTexture surfaceTexture = {0};
+  wgpuSurfaceGetCurrentTexture(renderContext.surface, &surfaceTexture);
+
+  WGPUTextureViewDescriptor viewDescriptor = {0};
+  viewDescriptor.label = WGPU_STR("Surface texture view");
+  viewDescriptor.format = renderContext.format;
+  viewDescriptor.dimension = WGPUTextureViewDimension_2D;
+  viewDescriptor.mipLevelCount = 1;
+  viewDescriptor.arrayLayerCount = 1;
+  viewDescriptor.aspect = WGPUTextureAspect_All;
+  viewDescriptor.usage = WGPUTextureUsage_RenderAttachment;
+  WGPUTextureView targetView =
+      wgpuTextureCreateView(surfaceTexture.texture, &viewDescriptor);
+
+  return (SurfaceTextureView){.texture = surfaceTexture, .view = targetView};
+}
+
+int initWGPU() {
+  WGPUInstanceDescriptor desc = {0};
+
+  renderContext.instance = wgpuCreateInstance(&desc);
+
+  if (!renderContext.instance) {
+    return -1;
+  }
+
+  if ((renderContext.adapter = requestAdapter()) == 0) {
+    finishWGPU();
+    return -1;
+  }
+
+  if ((renderContext.device = requestDevice()) == 0) {
+    finishWGPU();
+    return -1;
+  }
+
+  if ((renderContext.surface = wgpuGlfwCreateSurfaceForWindow(
+           renderContext.instance, renderContext.window)) == 0) {
+    finishWGPU();
+    return -1;
+  }
+#pragma region CONFIGURE_SURFACE
+  WGPUSurfaceCapabilities capabilities = {0};
+  wgpuSurfaceGetCapabilities(renderContext.surface, renderContext.adapter,
+                             &capabilities);
+  WGPUSurfaceConfiguration config = {0};
+  config.width = renderContext.width;
+  config.height = renderContext.height;
+  config.format = WGPUTextureFormat_BGRA8Unorm;
+  config.usage = WGPUTextureUsage_RenderAttachment;
+  config.device = renderContext.device;
+  config.presentMode = WGPUPresentMode_Fifo;
+  config.alphaMode = WGPUCompositeAlphaMode_Auto;
+  wgpuSurfaceConfigure(renderContext.surface, &config);
+  renderContext.format = capabilities.formats[0];
+#pragma end
+
+  renderContext.queue = wgpuDeviceGetQueue(renderContext.device);
+
+  return 0;
+}
 
 int renderInit(RenderInitParams *params) {
   renderContext.width = params->width;
@@ -18,9 +180,12 @@ int renderInit(RenderInitParams *params) {
   renderContext.maxTextures = 256;
   renderContext.textures =
       malloc(sizeof(TextureView) * renderContext.maxTextures);
+
   if (initWGPU()) {
+    renderFinish();
     return -1;
   }
+
   renderContext.frameData.cmd = createCommandBuffer(1024);
 
   if (spriteRendererCreate()) {
@@ -54,23 +219,21 @@ void renderFinish() {
   finishWGPU();
 }
 
-void resizeTextures() {
-  void *old = renderContext.textures;
-  size_t size = renderContext.numTextures * sizeof(TextureView);
-  renderContext.maxTextures *= 2;
-  renderContext.textures =
-      malloc(renderContext.maxTextures * sizeof(TextureView));
-  memcpy(renderContext.textures, old, size);
-  free(old);
-}
-
 TextureRef loadTexture(const char *path) {
   return loadTextureArray(path, 1, 1);
 }
 
 TextureRef loadTextureArray(const char *path, uint32_t nCols, uint32_t nRows) {
   if (renderContext.numTextures == renderContext.maxTextures) {
-    resizeTextures();
+#pragma region RESIZE TEXTURES
+    void *old = renderContext.textures;
+    size_t size = renderContext.numTextures * sizeof(TextureView);
+    renderContext.maxTextures *= 2;
+    renderContext.textures =
+        malloc(renderContext.maxTextures * sizeof(TextureView));
+    memcpy(renderContext.textures, old, size);
+    free(old);
+#pragma end
   }
 
   Bitmap *image = readImageArray(path, nCols, nRows);
@@ -90,35 +253,6 @@ TextureRef loadTextureArray(const char *path, uint32_t nCols, uint32_t nRows) {
   return ++renderContext.numTextures;
 }
 
-WGPUCommandEncoder wgpu_createCommandEncoder(const char *name) {
-  WGPUCommandEncoderDescriptor desc = {.label = WGPU_STR(name)};
-
-  return wgpuDeviceCreateCommandEncoder(renderContext.device, &desc);
-}
-
-void renderScene(WGPURenderPassEncoder encoder, RenderState *state) {
-  TextureRef prevTexture = 0;
-  for (int i = 0; i < state->numsprites; i++) {
-    RenderSprite *spr = state->sprites + i;
-    if (spr->texture != prevTexture) {
-      if (prevTexture) {
-        spriteRendererEndPass(encoder);
-      }
-      spriteRendererInitPass(spr->texture - 1);
-      prevTexture = spr->texture;
-    }
-    Sprite s = {.depth = spr->depth,
-                .dst = spr->dst,
-                .src = spr->src,
-                .idx = spr->layer,
-                .depth = spr->depth};
-    spriteRendererDraw(&s);
-  }
-  if (prevTexture) {
-    spriteRendererEndPass(encoder);
-  }
-}
-
 void renderFrame(RenderState *state) {
 
   if (renderContext.texturesDirty) {
@@ -132,7 +266,11 @@ void renderFrame(RenderState *state) {
   // Init frame
   {
     frameData->screenSurface = getNextSurfaceViewData();
-    frameData->encoder = wgpu_createCommandEncoder("My encoder");
+
+    WGPUCommandEncoderDescriptor commandEncoderDesc = {0};
+
+    frameData->encoder = wgpuDeviceCreateCommandEncoder(renderContext.device,
+                                                        &commandEncoderDesc);
 
     WGPURenderPassColorAttachment renderPassColorAttachment = {0};
     renderPassColorAttachment.view = renderContext.backbuffer.view;
@@ -148,7 +286,26 @@ void renderFrame(RenderState *state) {
         wgpuCommandEncoderBeginRenderPass(frameData->encoder, &desc);
   }
 
-  renderScene(renderPassEncoder, state);
+  TextureRef prevTexture = 0;
+  for (int i = 0; i < state->numsprites; i++) {
+    RenderSprite *spr = state->sprites + i;
+    if (spr->texture != prevTexture) {
+      if (prevTexture) {
+        spriteRendererEndPass(renderPassEncoder);
+      }
+      spriteRendererInitPass(spr->texture - 1);
+      prevTexture = spr->texture;
+    }
+    Sprite s = {.depth = spr->depth,
+                .dst = spr->dst,
+                .src = spr->src,
+                .idx = spr->layer,
+                .depth = spr->depth};
+    spriteRendererDraw(&s);
+  }
+  if (prevTexture) {
+    spriteRendererEndPass(renderPassEncoder);
+  }
 
   // Finish Frame
   {

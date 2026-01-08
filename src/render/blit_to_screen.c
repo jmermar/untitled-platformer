@@ -1,7 +1,6 @@
 #include "blit_to_screen.h"
-#include "pipelines.h"
-#include "render_context.h"
-#include "wgpu.h"
+#include "render_imp.h"
+#include "resources.h"
 typedef struct {
   WGPUPipelineLayout pipelineLayout;
   WGPURenderPipeline pipeline;

@@ -1,12 +1,5 @@
 #pragma once
-#include <dawn/webgpu.h>
-#include <stdint.h>
-
-typedef struct {
-    size_t capacity;
-    size_t size;
-    WGPUCommandBuffer* commands;
-} CommandBuffer;
+#include "render_imp.h"
 
 CommandBuffer createCommandBuffer(size_t capacity);
 void commandBufferDestroy(CommandBuffer *buffer);

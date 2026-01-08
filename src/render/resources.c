@@ -1,9 +1,5 @@
-#include "textures.h"
-#include "render_context.h"
-#include "wgpu.h"
-#include <stdio.h>
-#include <stdlib.h>
-
+#include "resources.h"
+#include "../files.h"
 TextureView textureViewCreate(const char *name, Size size, uint32_t layers,
                               WGPUTextureFormat format,
                               WGPUTextureUsage usage) {
@@ -89,4 +85,72 @@ void textureViewWrite(TextureView *tex, void *data) {
                         layout.bytesPerRow * tex->size.height *
                             tex->size.depthOrArrayLayers,
                         &layout, &tex->size);
+}
+
+Buffer bufferCreate(const char *label, size_t size, WGPUBufferUsage usage) {
+  assert(size > 0);
+  WGPUBufferDescriptor desc = {0};
+  desc.size = size;
+  desc.usage = usage;
+  desc.label = WGPU_STR(label);
+  return (Buffer){.buffer = wgpuDeviceCreateBuffer(renderContext.device, &desc),
+                  .size = size};
+}
+void bufferDestroy(Buffer *buffer) {
+  if (buffer && buffer->buffer) {
+    wgpuBufferRelease(buffer->buffer);
+    *buffer = (Buffer){0};
+  }
+}
+
+void bufferWrite(Buffer *buffer, size_t size, void *data) {
+  assert(buffer && buffer->size >= size);
+  wgpuQueueWriteBuffer(renderContext.queue, buffer->buffer, 0, data, size);
+}
+
+WGPUShaderModule compileShaderModule(const char *src) {
+  WGPUShaderModuleDescriptor desc = {0};
+
+  WGPUShaderSourceWGSL shaderCodeDesc = {0};
+  shaderCodeDesc.chain.sType = WGPUSType_ShaderSourceWGSL;
+  shaderCodeDesc.code = WGPU_STR(src);
+  desc.nextInChain = &shaderCodeDesc.chain;
+
+  return wgpuDeviceCreateShaderModule(renderContext.device, &desc);
+}
+
+WGPUShaderModule createShaderModule(const char *filepath) {
+  char *src = readTextFile(filepath);
+
+  if (src == 0) {
+    return 0;
+  }
+
+  WGPUShaderModule module = compileShaderModule(src);
+  free(src);
+
+  return module;
+}
+
+WGPUVertexBufferLayout getSpriteBufferLayout(WGPUVertexAttribute *attr) {
+  WGPUVertexBufferLayout layout = {0};
+
+  attr[0].format = WGPUVertexFormat_Float32x3;
+  attr[0].offset = 0;
+  attr[0].shaderLocation = 0;
+
+  attr[1].format = WGPUVertexFormat_Float32x2;
+  attr[1].offset = 3 * sizeof(float);
+  attr[1].shaderLocation = 1;
+
+  attr[2].format = WGPUVertexFormat_Uint32;
+  attr[2].offset = 5 * sizeof(uint32_t);
+  attr[2].shaderLocation = 2;
+
+  layout.arrayStride = 5 * sizeof(float) + sizeof(uint32_t);
+  layout.attributeCount = 3;
+  layout.attributes = attr;
+  layout.stepMode = WGPUVertexStepMode_Vertex;
+
+  return layout;
 }
