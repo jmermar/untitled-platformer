@@ -1,10 +1,10 @@
 #pragma once
-#include "dawn/webgpu.h"
 #include <memory.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <webgpu/webgpu.h>
 
 #define WGPU_STR(str) ((WGPUStringView){.data = str, .length = strlen(str)})
 

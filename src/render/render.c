@@ -2,7 +2,6 @@
 #include "../files.h"
 #include "../types.h"
 #include "blit_to_screen.h"
-#include "commands.h"
 #include "render_imp.h"
 #include "sprite_renderer.h"
 #include "util.h"

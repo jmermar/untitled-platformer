@@ -1,9 +1,9 @@
-#include "sprite_renderer.h"
+#include "tilemap_renderer.h"
 #include "util.h"
 #include <assert.h>
 #include <stdio.h>
 #define INITIAL_MAX_SPRITES 256
-
+/*
 typedef struct {
   float pos[3];
   float uv[2];
@@ -181,7 +181,11 @@ void *spriteRendererCreate(WGPUDevice device,
   context->numSprites = 0;
   context->texH = context->texW = 1;
   context->cpuSpriteBuffer = malloc(sizeof(SpriteData) * INITIAL_MAX_SPRITES);
-  spriteRendererFinish();
+  if (context->cpuSpriteBuffer->data == 0) {
+    spriteRendererFinish();
+    return 0;
+  }
+
 #pragma end
 
   return context;
@@ -306,3 +310,4 @@ void spriteRendererEndPass(WGPUQueue queue, WGPURenderPassEncoder encoder) {
       sizeof(SpriteData) * context->numSprites);
   wgpuRenderPassEncoderDraw(encoder, context->numSprites * 6, 1, 0, 0);
 }
+*/
